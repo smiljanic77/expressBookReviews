@@ -10,19 +10,39 @@ app.use(express.json());
 
 app.use("/customer",session({secret:"fingerprint_customer",resave: true, saveUninitialized: true}))
 
-app.use("/customer/auth/*", function auth(req,res,next){
-    if(!req.session.authorization) {
-        return res.status(403).json({message: "User not logged in"});
+app.use("/customer/auth/*", function auth(req, res, next) {
+    // Check if session exists and has authorization
+    if (!req.session || !req.session.authorization) {
+        return res.status(401).json({ message: "Please login to access this resource" });
     }
-    let token = req.session.authorization['accessToken'];
-    jwt.verify(token, "fingerprint_customer", (err, user) => {
-        if(!err) {
-            req.user = user;
-            next();
-        } else {
-            return res.status(403).json({message: "User not authenticated"});
+
+    // Check if access token exists
+    const token = req.session.authorization['accessToken'];
+    if (!token) {
+        return res.status(401).json({ message: "No access token found" });
+    }
+
+    try {
+        // Verify the JWT token
+        const decoded = jwt.verify(token, "fingerprint_customer");
+        
+        // Check if token is expired
+        if (decoded.exp && Date.now() >= decoded.exp * 1000) {
+            return res.status(401).json({ message: "Token has expired" });
         }
-    });
+
+        // Attach user to request object
+        req.user = decoded;
+        next();
+    } catch (error) {
+        if (error.name === 'TokenExpiredError') {
+            return res.status(401).json({ message: "Token has expired" });
+        }
+        if (error.name === 'JsonWebTokenError') {
+            return res.status(401).json({ message: "Invalid token" });
+        }
+        return res.status(500).json({ message: "Internal server error during authentication" });
+    }
 });
  
 const PORT =5000;
